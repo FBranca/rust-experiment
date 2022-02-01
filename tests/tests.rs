@@ -79,3 +79,16 @@ fn test_dispute_resolve_dispute () {
     let acc1 = bank.accounts.get(&1).unwrap();
     assert_eq!(*acc1, Account{total: 160000, held: 20000, locked: false});
 }
+
+// dispute / chargeback / deposit scenario
+// Check that a chargeback is done and account locked (no operation allowed)
+#[test]
+fn test_dispute_chargeback () {
+    let mut bank: Bank = Bank::new();
+    test_from_input_file (&mut bank, "tests/dispute_chargeback.csv");
+
+    assert_eq!(bank.accounts.len(), 1);
+
+    let acc1 = bank.accounts.get(&1).unwrap();
+    assert_eq!(*acc1, Account{total: 100000, held: 0, locked: true});
+}

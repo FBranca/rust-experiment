@@ -110,10 +110,14 @@ impl TransactionLogInMemory {
     }
 }
 
+/* Account of a client
+ *
+ * Note: available is deduced from total - held
+*/
 #[derive(Debug, PartialEq)]
 pub struct Account {
-    pub total: u32,
-    pub held: u32,
+    pub total: u32, // fixed decimal integer with 4 decimals (1 = 0.0001)
+    pub held:  u32, // fixed decimal integer with 4 decimals (1 = 0.0001)
     pub locked: bool
 }
 
@@ -274,6 +278,7 @@ impl Bank {
 
         account.held -= amount;
         account.total -= amount;
+        account.locked = true;
         ref_tx.under_dispute = false;
         ref_tx.charged_back = true;
         Ok(())
