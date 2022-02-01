@@ -10,7 +10,7 @@ type AccountsMap = HashMap<ClientId, Account>;
 
 
 #[derive(Debug, Clone)]
-enum OpType {
+pub enum OpType {
     Deposit,
     Withdrawal,
     Dispute,
@@ -21,11 +21,21 @@ enum OpType {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Operation {
     #[serde(deserialize_with = "deserialize_op_type")]
-    r#type: OpType, // Operation Type
-    client: ClientId,    // Client id
-    tx: u32,        // Transaction Id
+    r#type: OpType,     // Operation Type
+    client: ClientId,   // Client id
+    tx: u32,            // Transaction Id
     #[serde(deserialize_with = "deserialize_amount")]
-    amount: u32     // Amount, fixed point integer representation (value 1.52 is represented by 15200)
+    amount: Option<u32>, // Amount, fixed point integer representation (value 1.52 is represented by 15200)
+    #[serde(skip_deserializing)]
+    under_dispute: bool,
+    #[serde(skip_deserializing)]
+    charged_back: bool
+}
+
+impl Operation {
+    pub fn new (r#type: OpType, client: ClientId, tx: u32, amount: Option<u32>) -> Operation {
+        Operation {r#type: r#type, client: client, tx: tx, amount: amount, under_dispute: false, charged_back: false}
+    }
 }
 
 /* Convert a string to the corresponding operation type */
@@ -47,12 +57,15 @@ where
 
 /* Convert an amount from f32 (as read by serde crate)
    to a fixed point integer representation */
-fn deserialize_amount<'de, D>(deserializer: D) -> Result<u32, D::Error>
+fn deserialize_amount<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
 where
     D: de::Deserializer<'de>,
 {
-    let amount: f32 = de::Deserialize::deserialize(deserializer)?;
-    Ok((amount * 10000.0) as u32)
+    let amount: Option<f32> = de::Deserialize::deserialize(deserializer)?;
+    match amount {
+        Some(val) => Ok(Some((val * 10000.0) as u32)),
+        None => Ok(None)
+    }
 }
 
 // Transaction log trait
@@ -68,7 +81,7 @@ where
 // most scalable
 trait TransactionLog {
     fn tx_add (&mut self, operation: &Operation);
-    fn tx_search (&self, id: &u32) -> Option<Operation>;
+    fn tx_search (&mut self, id: &u32) -> Option<&mut Operation>;
 }
 
 // Simple in-memory tansaction log
@@ -82,36 +95,31 @@ impl TransactionLog for TransactionLogInMemory {
         self.history.insert (operation.tx, operation.clone());
     }
 
-    fn tx_search (&self, id: &u32) -> Option<Operation> {
-        let operation = self.history.get(id);
+    fn tx_search (&mut self, id: &u32) -> Option<&mut Operation> {
+        let operation = self.history.get_mut(id);
         match operation {
-            Some(_) => Some(operation.unwrap().clone()),
+            Some(_) => Some(operation.unwrap()),
             None => None
         }
+    }
+}
+
+impl TransactionLogInMemory {
+    pub fn new () -> TransactionLogInMemory {
+        TransactionLogInMemory {history: HashMap::new()}
     }
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Account {
     pub total: u32,
-    pub frozen: u32,
+    pub held: u32,
     pub locked: bool
 }
 
 impl Account {
     fn new () -> Account {
-        Account {total: 0, frozen: 0, locked: false}
-    }
-
-    fn deposit (&mut self, amount: u32) {
-        self.total += amount;
-    }
-
-    fn withdrawal (&mut self, amount: u32) {
-        let available = self.total - self.frozen;
-        if amount <= available {
-            self.total -= amount;
-        }
+        Account {total: 0, held: 0, locked: false}
     }
 
     fn print_csv_header() {
@@ -119,11 +127,11 @@ impl Account {
     }
 
     fn print_csv_line(&self, client_id: &ClientId) {
-        let available = self.total - self.frozen;
+        let available = self.total - self.held;
         println!("{},{},{},{},{}",
             client_id,
             (available as f32) / 10000.0,
-            (self.frozen as f32) / 10000.0,
+            (self.held as f32) / 10000.0,
             (self.total as f32) / 10000.0,
             self.locked
         );
@@ -131,32 +139,154 @@ impl Account {
 }
 
 pub struct Bank {
-    pub accounts : AccountsMap // map of accounts indexed by client id
+    pub accounts : AccountsMap, // map of accounts indexed by client id
+    transaction_log : TransactionLogInMemory
 }
 
 impl Bank {
-    pub fn process_operation (&mut self, operation: &Operation) {
-        println!("{:?}", operation);
+    pub fn new () -> Bank {
+        Bank {accounts: HashMap::new(), transaction_log: TransactionLogInMemory::new()}
+    }
 
-        let account: &mut Account = self.get_account(&operation.client);
-    
+    pub fn process_operation (&mut self, operation: &Operation) {
+        let mut res;
+
         match operation.r#type {
-            OpType::Deposit => account.deposit(operation.amount),
-            OpType::Withdrawal => account.withdrawal(operation.amount),
-            OpType::Dispute => panic!("FIXME"),
-            OpType::Resolve => panic!("FIXME"),
-            OpType::Chargeback => panic!("FIXME"),
+            OpType::Deposit => res = self.deposit(operation),
+            OpType::Withdrawal => res = self.withdrawal(operation),
+            OpType::Dispute => res = self.dispute(operation),
+            OpType::Resolve => res = self.resolve(operation),
+            OpType::Chargeback => res = self.chargeback(operation),
+        }
+
+        if ! res.is_ok() {
+            eprintln!("transaction failed {}", res.err().unwrap());
         }
     }
 
-    fn get_account (&mut self, client_id: &ClientId) -> &mut Account {
-        if ! self.accounts.contains_key(client_id) {
-            self.accounts.insert(
+    fn deposit (&mut self, operation: &Operation) -> Result<(), &str> {
+        let account: &mut Account = Bank::get_account(&mut self.accounts, &operation.client);
+        if account.locked {
+            return Err ("deposit: account is locked");
+        }
+
+        account.total += operation.amount.unwrap();
+        self.transaction_log.tx_add (operation);
+        Ok(())
+    }
+
+    fn withdrawal (&mut self, operation: &Operation) -> Result<(), &str> {
+        let account: &mut Account = Bank::get_account(&mut self.accounts, &operation.client);
+        if account.locked {
+            return Err ("withdrawal: account is locked");
+        }
+
+        let available = account.total - account.held;
+        let amount = operation.amount.unwrap();
+        if amount > available {
+            return Err ("withdrawal: not enough available credit");
+        }
+
+        account.total -= amount;
+        self.transaction_log.tx_add (operation);
+        Ok(())
+    }
+
+    fn dispute (&mut self, operation: &Operation) -> Result<(), &str> {
+        let ref_tx = self.transaction_log.tx_search(&operation.tx);
+        if ref_tx.is_none() {
+            return Err ("dispute: referenced transaction doesn't exist");
+        }
+
+        let mut ref_tx = ref_tx.unwrap();
+        if ref_tx.under_dispute {
+            return Err ("dispute: transaction allready under dispute");
+        }
+
+        if ref_tx.charged_back {
+            // No sense to dispute a transaction that have been charged back
+            return Err ("dispute: transaction was charged back");
+        }
+
+        if ref_tx.client != operation.client {
+            // Assume the client issuing the dispute must be the same of the original transaction 
+            return Err ("dispute: client id inconsistent with referenced transaction");
+        }
+
+        let amount = ref_tx.amount.unwrap();
+        let account: &mut Account = Bank::get_account(&mut self.accounts, &operation.client);
+        if account.locked {
+            return Err ("dispute: account is locked");
+        }
+
+        account.held += amount;
+        println!("dispute {} {}", account.held, amount);
+        ref_tx.under_dispute = true;
+        Ok(())
+    }
+
+    fn resolve (&mut self, operation: &Operation) -> Result<(), &str> {
+        let ref_tx = self.transaction_log.tx_search(&operation.tx);
+        if ref_tx.is_none() {
+            return Err("resolve: referenced transaction doesn't exist");
+        }
+
+        let mut ref_tx = ref_tx.unwrap();
+        if ! ref_tx.under_dispute {
+            return Err("resolve: transaction is not under dispute");
+        }
+
+        if ref_tx.client != operation.client {
+            return Err("resolve: client id inconsistent with referenced transaction");
+        }
+
+        let amount = ref_tx.amount.unwrap();
+        let account: &mut Account = Bank::get_account(&mut self.accounts, &operation.client);
+        if account.locked {
+            return Err ("resolve: account is locked");
+        }
+        account.held -= amount;
+        println!("resolve {} {}", account.held, amount);
+        ref_tx.under_dispute = false;
+        Ok(())
+    }
+
+    fn chargeback (&mut self, operation: &Operation) -> Result<(), &str> {
+        let ref_tx = self.transaction_log.tx_search(&operation.tx);
+        if ref_tx.is_none() {
+            return Err("chargeback: referenced transaction doesn't exist");
+        }
+
+        let mut ref_tx = ref_tx.unwrap();
+        if ! ref_tx.under_dispute {
+            return Err("chargeback: transaction is not under dispute");
+        }
+
+        if ref_tx.client != operation.client {
+            return Err("chargeback: client id inconsistent with referenced transaction");
+        }
+
+        let amount = ref_tx.amount.unwrap();
+        let account: &mut Account = Bank::get_account(&mut self.accounts, &operation.client);
+        if account.locked {
+            return Err ("chargeback: account is locked");
+        }
+
+        account.held -= amount;
+        account.total -= amount;
+        ref_tx.under_dispute = false;
+        ref_tx.charged_back = true;
+        Ok(())
+    }
+
+    fn get_account<'a> (accounts: &'a mut AccountsMap, client_id: &ClientId) -> &'a mut Account {
+        if ! accounts.contains_key(client_id) {
+            accounts.insert(
                 *client_id,
                 Account::new()
             );
         }
-        let account = self.accounts.get_mut(&client_id);
+        let account = accounts.get_mut(&client_id);
         account.unwrap()
     }
 
