@@ -68,7 +68,7 @@ fn test_dispute_dispute () {
 }
 
 // dispute / resolve / dispute scenario
-// Check that a dispute can still be done after a resolve
+// Check that a new dispute can be done after a resolve
 #[test]
 fn test_dispute_resolve_dispute () {
     let mut bank: Bank = Bank::new();
@@ -91,4 +91,17 @@ fn test_dispute_chargeback () {
 
     let acc1 = bank.accounts.get(&1).unwrap();
     assert_eq!(*acc1, Account{total: 100000, held: 0, locked: true});
+}
+
+// dispute / chargeback with a negative total in the end
+// Occurs when a dispute is done with insufficient available funds
+#[test]
+fn test_dispute_negative_chargeback () {
+    let mut bank: Bank = Bank::new();
+    test_from_input_file (&mut bank, "tests/dispute_negative_chargeback.csv");
+
+    assert_eq!(bank.accounts.len(), 1);
+
+    let acc1 = bank.accounts.get(&1).unwrap();
+    assert_eq!(*acc1, Account{total: -10000, held: 0, locked: true});
 }

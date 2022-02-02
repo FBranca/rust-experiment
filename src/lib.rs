@@ -8,7 +8,10 @@ extern crate serde_derive;
 type ClientId = u16;
 type AccountsMap = HashMap<ClientId, Account>;
 
+// ////////////////////////////////////////////////////////////////////////////
+//  Transactions
 
+// Operations types
 #[derive(Debug, Clone)]
 pub enum OpType {
     Deposit,
@@ -18,6 +21,7 @@ pub enum OpType {
     Chargeback
 }
 
+// An operation, as read from the CSV file + status information
 #[derive(Debug, Clone, Deserialize)]
 pub struct Operation {
     #[serde(deserialize_with = "deserialize_op_type")]
@@ -25,15 +29,15 @@ pub struct Operation {
     client: ClientId,   // Client id
     tx: u32,            // Transaction Id
     #[serde(deserialize_with = "deserialize_amount")]
-    amount: Option<u32>, // Amount, fixed point integer representation (value 1.52 is represented by 15200)
+    amount: Option<i32>, // Amount, fixed point integer representation (value 1.52 is represented by 15200)
     #[serde(skip_deserializing)]
-    under_dispute: bool,
+    under_dispute: bool, // true if transaction is under dispute
     #[serde(skip_deserializing)]
-    charged_back: bool
+    charged_back: bool  // true if transaction has been charged back
 }
 
 impl Operation {
-    pub fn new (r#type: OpType, client: ClientId, tx: u32, amount: Option<u32>) -> Operation {
+    pub fn new (r#type: OpType, client: ClientId, tx: u32, amount: Option<i32>) -> Operation {
         Operation {r#type: r#type, client: client, tx: tx, amount: amount, under_dispute: false, charged_back: false}
     }
 }
@@ -54,19 +58,21 @@ where
     }
 }
 
-
 /* Convert an amount from f32 (as read by serde crate)
    to a fixed point integer representation */
-fn deserialize_amount<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
+fn deserialize_amount<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
 where
     D: de::Deserializer<'de>,
 {
     let amount: Option<f32> = de::Deserialize::deserialize(deserializer)?;
     match amount {
-        Some(val) => Ok(Some((val * 10000.0) as u32)),
+        Some(val) => Ok(Some((val * 10000.0) as i32)),
         None => Ok(None)
     }
 }
+
+// ////////////////////////////////////////////////////////////////////////////
+//  Transactions log
 
 // Transaction log trait
 // Recording transaction history and searching in all previous transactions 
@@ -75,7 +81,7 @@ where
 //  ^
 //  |  in memory history of transactions
 //  |  a line number in the input CSV file (only works with a single CSV file as input)
-//  |  a set of files 
+//  |  a set of files (one per transaction)
 //  |  connexion to a database
 //  v
 // most scalable
@@ -110,14 +116,18 @@ impl TransactionLogInMemory {
     }
 }
 
+
+// ////////////////////////////////////////////////////////////////////////////
+//  Account
+
 /* Account of a client
  *
  * Note: available is deduced from total - held
 */
 #[derive(Debug, PartialEq)]
 pub struct Account {
-    pub total: u32, // fixed decimal integer with 4 decimals (1 = 0.0001)
-    pub held:  u32, // fixed decimal integer with 4 decimals (1 = 0.0001)
+    pub total: i32, // fixed decimal integer with 4 decimals (1 = 0.0001)
+    pub held:  i32, // fixed decimal integer with 4 decimals (1 = 0.0001)
     pub locked: bool
 }
 
@@ -142,9 +152,12 @@ impl Account {
     }
 }
 
+// ////////////////////////////////////////////////////////////////////////////
+//  Bank: transaction processing & keep client account up to date
+
 pub struct Bank {
     pub accounts : AccountsMap, // map of accounts indexed by client id
-    transaction_log : TransactionLogInMemory
+    transaction_log : TransactionLogInMemory // transaction history
 }
 
 impl Bank {
@@ -164,7 +177,8 @@ impl Bank {
         }
 
         if ! res.is_ok() {
-            eprintln!("transaction failed {}", res.err().unwrap());
+            // Error handling here
+            // eprintln!("transaction failed {}", res.err().unwrap());
         }
     }
 
