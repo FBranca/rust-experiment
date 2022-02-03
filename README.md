@@ -34,7 +34,7 @@ Maintenability is also easier because of the presence of integration tests that 
 Some integration tests helps to check the correctness of the code.
 
 I spent some time on the disputes on a withdrawal operation because it sounded weird to me.
-For disputes is asked to hold the amount of the refered transaction without any precision. However, the case of dispute on a deposit looks very different of the one on a withdrawal.
+For disputes it is asked to hold the amount of the refered transaction without any precision. However, the case of dispute on a deposit looks very different of the one on a withdrawal.
 Helding the funds of a deposit in the case of a dispute sounds natural (the funds may be charged back in the future), but this makes less sense on a withdrawal as the funds have already been removed from the account (so there should be no need to hold them).
 
 I decided to apply what was asked : the amount is held whatever the kind of the refered transaction. Hope this is what is expected.
