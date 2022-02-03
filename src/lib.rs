@@ -293,7 +293,15 @@ impl Bank {
         }
 
         account.held -= amount;
-        account.total -= amount;
+        match ref_tx.r#type {
+            OpType::Deposit => {
+                account.total -= amount;
+            }
+            OpType::Withdrawal => {
+                account.total += amount;
+            }
+            _ => ()
+        }
         account.locked = true;
         ref_tx.under_dispute = false;
         ref_tx.charged_back = true;

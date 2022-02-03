@@ -1,6 +1,12 @@
 == Completeness ==
 
-All cases should be adressed by this implementation.
+All cases should be adressed by this implementation, in particular :
+* Deposits
+* Withdrawals,
+* Disputes of a deposit or withdrawal
+* Resolves
+* chargebacks (for deposit or withdrawals)
+* account locking
 
 == Safety & Robustness ==
 

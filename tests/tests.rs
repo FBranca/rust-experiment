@@ -80,12 +80,37 @@ fn test_dispute_resolve_dispute () {
     assert_eq!(*acc1, Account{total: 160000, held: 20000, locked: false});
 }
 
-// dispute / chargeback / deposit scenario
+// resolve without dispute scenario
+#[test]
+fn test_resolve_without_dispute () {
+    let mut bank: Bank = Bank::new();
+    test_from_input_file (&mut bank, "tests/resolve_without_dispute.csv");
+
+    assert_eq!(bank.accounts.len(), 1);
+
+    let acc1 = bank.accounts.get(&1).unwrap();
+    assert_eq!(*acc1, Account{total: 120000, held: 0, locked: false});
+}
+
+// dispute / chargeback of a deposit / deposit scenario
 // Check that a chargeback is done and account locked (no operation allowed)
 #[test]
-fn test_dispute_chargeback () {
+fn test_dispute_chargeback_deposit () {
     let mut bank: Bank = Bank::new();
-    test_from_input_file (&mut bank, "tests/dispute_chargeback.csv");
+    test_from_input_file (&mut bank, "tests/dispute_chargeback_deposit.csv");
+
+    assert_eq!(bank.accounts.len(), 1);
+
+    let acc1 = bank.accounts.get(&1).unwrap();
+    assert_eq!(*acc1, Account{total: 100000, held: 0, locked: true});
+}
+
+// dispute / chargeback of a withdrawal
+// Check that a chargeback is done and account locked (no operation allowed)
+#[test]
+fn test_dispute_chargeback_withdrawl () {
+    let mut bank: Bank = Bank::new();
+    test_from_input_file (&mut bank, "tests/dispute_chargeback_withdrawal.csv");
 
     assert_eq!(bank.accounts.len(), 1);
 

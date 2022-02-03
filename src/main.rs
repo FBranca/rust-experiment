@@ -9,7 +9,6 @@ fn main() {
         panic!("need a filename as paramater");
     }
 
-    // TODO Boxing let mut bank = Box::<Bank>::new();
     let mut bank: Bank = Bank::new();
     let mut csv_reader = csv::Reader::from_path(args[1].as_str()).unwrap();
     for result in csv_reader.deserialize() {
