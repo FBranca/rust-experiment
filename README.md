@@ -1,4 +1,4 @@
-== Completeness ==
+## Completeness
 
 All cases should be adressed by this implementation, in particular :
 * Deposits
@@ -8,7 +8,7 @@ All cases should be adressed by this implementation, in particular :
 * chargebacks (for deposit or withdrawals)
 * account locking
 
-== Safety & Robustness ==
+## Safety & Robustness
 
 Current implementation doesn't adress the following points :
 * Doesn't check for syntax error in the input file
@@ -16,20 +16,20 @@ Current implementation doesn't adress the following points :
 
 The code can panic is some situations (syntax error in the CSV for example).
 
-== Scalibility == 
+## Scalibility
 
 There is no scalibity issue for accounts. As the client id is u16, there can only be 65536 client accounts.
 
 This is more complicated for transactions : we need to keep track of previous transaction in order to handle disputes and there is no limit specified, so we can reach 2^32 transactions.
 The code defines a trait for the transaction log, so different implementation can be used without changing the business logic. The current implementation is a simple in memory transaction log and won't scale to an important number of transactions. It should be replaced by other solution to scale up without using too much memory : files or database.
 
-== Maintenability ==
+## Maintenability
 
 Current code is simple and should not be too difficult to maintain.
 It may have been better to create one file per concept (one file for accounts, one for transactions, one for transaction log), especially if these concepts are meant to grow of evolve (but it's not the case here).
 Maintenability is also easier because of the presence of integration tests that helps to prevent regressions.
 
-== Correctness ==
+## Correctness
 
 Some integration tests helps to check the correctness of the code.
 
