@@ -86,8 +86,8 @@ where
 //  v
 // most scalable
 trait TransactionLog {
-    fn tx_add (&mut self, operation: &Operation);
-    fn tx_search (&mut self, id: &u32) -> Option<&mut Operation>;
+    fn tx_add_or_update (&mut self, operation: &Operation);
+    fn tx_search (&self, id: &u32) -> Option<Operation>;
 }
 
 // Simple in-memory tansaction log
@@ -97,14 +97,14 @@ struct TransactionLogInMemory {
 }
 
 impl TransactionLog for TransactionLogInMemory {
-    fn tx_add (&mut self, operation: &Operation) {
+    fn tx_add_or_update (&mut self, operation: &Operation) {
         self.history.insert (operation.tx, operation.clone());
     }
 
-    fn tx_search (&mut self, id: &u32) -> Option<&mut Operation> {
-        let operation = self.history.get_mut(id);
+    fn tx_search (&self, id: &u32) -> Option<Operation> {
+        let operation = self.history.get(id);
         match operation {
-            Some(_) => Some(operation.unwrap()),
+            Some(_) => Some(operation.unwrap().clone()),
             None => None
         }
     }
@@ -166,7 +166,7 @@ impl Bank {
     }
 
     pub fn process_operation (&mut self, operation: &Operation) {
-        let mut res;
+        let res;
 
         match operation.r#type {
             OpType::Deposit => res = self.deposit(operation),
@@ -189,7 +189,7 @@ impl Bank {
         }
 
         account.total += operation.amount.unwrap();
-        self.transaction_log.tx_add (operation);
+        self.transaction_log.tx_add_or_update (operation);
         Ok(())
     }
 
@@ -206,7 +206,7 @@ impl Bank {
         }
 
         account.total -= amount;
-        self.transaction_log.tx_add (operation);
+        self.transaction_log.tx_add_or_update (operation);
         Ok(())
     }
 
@@ -240,6 +240,7 @@ impl Bank {
         account.held += amount;
         println!("dispute {} {}", account.held, amount);
         ref_tx.under_dispute = true;
+        self.transaction_log.tx_add_or_update(&ref_tx);
         Ok(())
     }
 
@@ -266,6 +267,7 @@ impl Bank {
         account.held -= amount;
         println!("resolve {} {}", account.held, amount);
         ref_tx.under_dispute = false;
+        self.transaction_log.tx_add_or_update(&ref_tx);
         Ok(())
     }
 
@@ -295,6 +297,7 @@ impl Bank {
         account.locked = true;
         ref_tx.under_dispute = false;
         ref_tx.charged_back = true;
+        self.transaction_log.tx_add_or_update(&ref_tx);
         Ok(())
     }
 
